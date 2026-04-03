@@ -1,0 +1,27 @@
+decomposition:
+  strategy: hybrid           # parallel | sequential | hybrid
+  max_workers: 10
+  min_module_size: 30min     # 每个模块最少30分钟工作量
+  
+dependency:
+  auto_detect: true
+  strict_mode: false         # false=允许弱依赖并行
+  
+monitoring:
+  check_interval: 10min
+  alert_on_block: true
+  auto_escalate: 15min       # 阻塞15分钟后上报
+
+output:
+  format: markdown
+  consolidate: true          # 自动整合
+  preserve_individual: true  # 保留各Worker输出
+
+worker:
+  default_timeout: 2h        # 默认超时时间
+  max_retries: 3             # 最大重试次数
+  
+manager:
+  check_cycle: 10min         # 检查周期
+  auto_finalize: false       # 自动整合
+  require_confirmation: true # 关键操作需要确认

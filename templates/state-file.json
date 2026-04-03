@@ -1,0 +1,18 @@
+{
+  "phase": 1,
+  "name": "模块名称",
+  "status": "pending",
+  "subagent_id": null,
+  "start_time": null,
+  "last_update": null,
+  "elapsed_minutes": 0,
+  "progress_percent": 0,
+  "blockers": [],
+  "deliverables": [
+    "交付物1描述",
+    "交付物2描述"
+  ],
+  "completed_deliverables": [],
+  "estimated_completion": null,
+  "notes": ""
+}
