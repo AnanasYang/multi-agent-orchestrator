@@ -4,525 +4,580 @@
 
 自动将复杂任务分解为并行子任务，协调多个子代理执行。适用于大型项目开发、多模块系统设计、批量文档编写等场景。
 
+**核心架构**：主代理识别 + Manager 子代理 + Workers 并行执行
+- 用户输入 `/mao <任务>`
+- 主代理**立即返回确认**（不阻塞）
+- 启动 Manager Subagent（后台运行，带 5 分钟心跳）
+- Manager 负责分析、拆解、启动 Workers
+- 所有进度通过消息汇报到主会话
+
 核心能力：
-- **智能任务分解**：自动分析任务可分解性，推荐最优模块划分
-- **并行执行**：启动多个 Worker 同时处理独立模块
-- **依赖协调**：自动识别模块间依赖，合理安排执行顺序
-- **状态监控**：实时监控各 Worker 进度，及时识别阻塞
-- **自动整合**：完成后自动整合各模块交付物
-- **增量任务**：基于当前上下文或历史记忆继续未完成的任务
+- **非阻塞执行**：主会话立即返回，后台自动执行
+- **智能任务分解**：Manager 自动分析并拆解任务
+- **心跳监控**：Manager 每 5 分钟汇报进度
+- **并行执行**：多个 Worker 同时处理独立模块
+- **自然语言交互**：完全通过对话完成，无需手动脚本
 
 ## Usage
 
-### 快速启动
+### 快速启动（会话中自然语言）
 
 ```
 /mao <任务描述>
 ```
 
-### 分步控制
+**执行流程**：
+1. 用户在会话中输入 `/mao 检查 memory system 状态`
+2. 主代理**立即回复**："✅ 已启动 Manager，任务ID: check-memory-2026-04-05"
+3. **后台启动**：Manager Subagent 开始分析和执行
+4. **心跳汇报**：Manager 每 5 分钟向主会话发送进度消息
+5. **完成通知**：任务完成后发送总结报告
+
+### 实际示例
 
 ```
-/mao analyze "<任务>"              # 分析可分解性
-/mao decompose --modules 4         # 分解为4个模块
-/mao launch                        # 启动 Workers
-/mao launch --incremental          # 增量任务模式（基于当前上下文）
-/mao launch --resume               # 恢复历史任务
-/mao status                        # 查看实时状态
-/mao pause <worker-id>             # 暂停指定 Worker
-/mao resume <worker-id>            # 恢复指定 Worker
-/mao finalize                      # 整合交付物
+用户: /mao 检查 agent memory system 各组件状态
+
+AI: ✅ 已启动 Manager
+    📋 任务: 检查 agent memory system 各组件状态
+    🆔 任务ID: check-memory-2026-04-05-1430
+    ⏱️  首次汇报: 5分钟内
+    
+    Manager 正在后台分析任务...
+
+[5分钟后 - Manager 自动发送]
+
+AI: [Heartbeat - Manager: check-memory-2026-04-05-1430]
+    ⏱️ 运行: 5分钟
+    📊 进度: 分析完成，已拆解3个Workers
+    
+    Workers:
+    ├─ Worker-1 (检查 cron 任务): 🟡 运行中
+    ├─ Worker-2 (检查 GitHub 状态): 🟡 运行中
+    └─ Worker-3 (检查前端项目): ⏳ 等待启动
+    
+    预计完成: 15分钟
+
+[20分钟后 - Manager 自动发送]
+
+AI: [Complete] 🎉 任务完成！
+    
+    总耗时: 20分钟
+    Workers: 3个全部完成
+    
+    📋 检查结果:
+    ├─ Cron 任务: ❌ 未配置
+    ├─ GitHub: ⚠️ 有待提交更改
+    └─ 前端项目: ✅ 运行正常
+    
+    💡 建议操作:
+    1. 配置 crontab 定时任务
+    2. 提交 GitHub 更改
 ```
 
-### 配置选项
+### 查询状态
 
 ```
-/mao config max-workers 10         # 最大 Worker 数
-/mao config check-interval 10min   # 状态检查间隔
-/mao config auto-finalize true     # 自动整合
+用户: check-memory-2026-04-05-1430 进展如何？
+
+AI: 📊 任务状态查询
+    
+    任务ID: check-memory-2026-04-05-1430
+    状态: 🟡 运行中
+    进度: 66% (2/3 Workers 完成)
+    运行时间: 12分钟
+    
+    活跃 Workers:
+    ├─ Worker-1: ✅ 已完成
+    ├─ Worker-2: ✅ 已完成
+    └─ Worker-3: 🟡 运行中 80%
 ```
 
-## Installation
+## Architecture
 
-```bash
-# 方式1: 通过 OpenClaw 安装
-openclaw skill install multi-agent-orchestrator
+### 完整流程
 
-# 方式2: 手动安装
-git clone https://github.com/AnanasYang/multi-agent-orchestrator.git \
-  ~/.openclaw/skills/multi-agent-orchestrator
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        用户主会话                            │
+│  用户: /mao 开发博客系统                                       │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼ 立即返回确认
+┌─────────────────────────────────────────────────────────────┐
+│  主代理 (Main Agent)                                         │
+│  1. 识别 "/mao " 前缀                                        │
+│  2. 生成任务ID: blog-dev-2026-04-05-1430                     │
+│  3. sessions_spawn 启动 Manager                             │
+│  4. 回复用户: "已启动 Manager..."                             │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼ 非阻塞启动
+┌─────────────────────────────────────────────────────────────┐
+│  Manager Subagent (独立会话)                                  │
+│  • 独立上下文                                                │
+│  • 1小时超时                                                 │
+│  • streamTo: parent (可向主会话发送消息)                       │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+    ┌────────────────────┼────────────────────┐
+    ▼                    ▼                    ▼
+┌──────────┐      ┌──────────┐      ┌──────────┐
+│ Worker-1 │      │ Worker-2 │      │ Worker-3 │
+│ Subagent │      │ Subagent │      │ Subagent │
+└──────────┘      └──────────┘      └──────────┘
+    │                    │                    │
+    └────────────────────┼────────────────────┘
+                         ▼
+              每5分钟汇报到主会话
+```
+
+### 主代理职责
+
+当检测到 `/mao ` 前缀时：
+
+1. **立即响应**（< 1秒）
+   ```
+   ✅ 已启动 Manager
+   📋 任务: {任务描述}
+   🆔 任务ID: {task-id}
+   ⏱️  首次汇报: 5分钟内
+   ```
+
+2. **启动 Manager**
+   ```javascript
+   sessions_spawn({
+     task: managerPrompt,
+     mode: "run",
+     timeoutSeconds: 3600,
+     streamTo: "parent"
+   })
+   ```
+
+3. **转发汇报**
+   - 接收 Manager 发送的消息
+   - 转发给用户（无需处理，直接呈现）
+
+### Manager 职责
+
+Manager Subagent 的核心职责：
+
+```markdown
+# Manager Prompt Template
+
+你是一名任务管理专家，负责协调多代理并行执行。
+
+## 当前任务
+{task_description}
+
+## 你的职责
+1. **分析阶段**（启动后 1-2 分钟）
+   - 分析任务可分解性
+   - 确定 Worker 数量和职责
+   - 识别依赖关系
+   - 向主会话发送首次汇报
+
+2. **启动 Workers**（分析完成后）
+   - 为每个 Worker 调用 sessions_spawn
+   - 记录所有 Worker 的 sessionKey
+   - 向主会话发送 Workers 列表
+
+3. **心跳循环**（每 5 分钟）
+   - 检查所有 Worker 状态
+   - 向主会话发送进度消息
+   - 格式: [Heartbeat - Manager: {task-id}]
+
+4. **完成处理**
+   - 所有 Worker 完成后
+   - 整合结果
+   - 发送 [Complete] 消息
+
+## 消息格式
+
+首次汇报:
+```
+[Manager Started] {task-id}
+已拆解 {n} 个 Workers:
+├─ Worker-1: {职责}
+├─ Worker-2: {职责}
+└─ Worker-n: {职责}
+开始执行...
+```
+
+心跳汇报（每5分钟）:
+```
+[Heartbeat - Manager: {task-id}]
+⏱️ 运行: {X} 分钟
+📊 进度: {P}% ({completed}/{total} Workers 完成)
+
+Workers:
+├─ Worker-1: ✅ 已完成
+├─ Worker-2: 🟡 运行中 {progress}%
+├─ Worker-3: ⏳ 等待依赖
+└─ Worker-4: ❌ 失败（已重试1/3次）
+
+⚠️  阻塞: {如果有}
+💡 预计完成: {ETA}
+```
+
+完成汇报:
+```
+[Complete] 🎉 任务完成！
+
+总耗时: {X} 分钟
+Workers: {n} 个全部完成
+
+📋 交付物:
+├─ {item-1}
+├─ {item-2}
+└─ {item-n}
+```
+
+## 状态持久化
+
+每5分钟将状态写入文件:
+```json
+{
+  "taskId": "blog-dev-2026-04-05-1430",
+  "status": "running",
+  "startTime": "2026-04-05T14:30:00Z",
+  "workers": [
+    {"id": "worker-1", "status": "completed", "result": "..."},
+    {"id": "worker-2", "status": "running", "progress": 60}
+  ]
+}
+```
+
+路径: `~/.openclaw/workspace/.mao-status/{task-id}.json`
+
+## 现在开始
+
+1. 分析任务: {task_description}
+2. 发送首次汇报
+3. 启动 Workers
+4. 开始5分钟心跳循环
+```
+
+### Worker 职责
+
+每个 Worker 是一个独立的 subagent：
+
+```markdown
+# Worker Prompt Template
+
+你是 Worker-{n}，负责执行特定子任务。
+
+## 你的任务
+{worker_task_description}
+
+## 汇报机制
+- 完成后立即向 Manager 汇报
+- 遇到问题立即上报
+- 定期更新进度（如果需要长时间运行）
+
+## 输出要求
+- 将结果写入指定文件
+- 向 Manager 发送完成消息
+```
+
+## Implementation
+
+### 文件结构
+
+```
+multi-agent-orchestrator/
+├── SKILL.md                      # 本文件
+├── README.md                     # 简介
+├── AGENTS.md (workspace)         # 主代理识别规则
+├── config/
+│   └── default.yaml              # 默认配置
+└── templates/
+    └── manager-prompt.md         # Manager 启动提示词
+```
+
+### 主代理代码模式
+
+当用户输入 `/mao <任务>` 时，执行：
+
+```javascript
+// 1. 生成任务ID
+const taskId = generateTaskId(taskDescription);
+
+// 2. 立即回复用户
+reply(`✅ 已启动 Manager
+📋 任务: ${taskDescription}
+🆔 任务ID: ${taskId}
+⏱️  首次汇报: 5分钟内`);
+
+// 3. 启动 Manager Subagent
+const managerPrompt = loadTemplate('manager-prompt.md')
+  .replace('{{task_description}}', taskDescription)
+  .replace('{{task_id}}', taskId);
+
+sessions_spawn({
+  task: managerPrompt,
+  mode: "run",
+  timeoutSeconds: 3600,
+  streamTo: "parent"
+});
+
+// 4. 主代理继续可用，等待 Manager 汇报
+```
+
+### Manager 代码模式
+
+Manager Subagent 执行：
+
+```javascript
+// Phase 1: 分析
+const analysis = analyzeTask(taskDescription);
+const workers = decomposition(analysis);
+
+// 发送首次汇报
+sessions_send(parentSession, formatFirstReport(workers));
+
+// Phase 2: 启动 Workers
+const workerSessions = [];
+for (const worker of workers) {
+  const session = sessions_spawn({
+    task: worker.prompt,
+    mode: "run"
+  });
+  workerSessions.push({worker, session});
+}
+
+// Phase 3: 心跳循环
+setInterval(() => {
+  const status = checkWorkersStatus(workerSessions);
+  sessions_send(parentSession, formatHeartbeat(status));
+  saveStatusToFile(taskId, status);
+}, 5 * 60 * 1000);
+
+// Phase 4: 完成处理
+onAllWorkersComplete(() => {
+  const results = collectResults(workerSessions);
+  sessions_send(parentSession, formatCompletion(results));
+});
+```
+
+## Heartbeat Protocol
+
+### 配置
+
+```yaml
+# config/default.yaml
+manager:
+  heartbeat_interval: 5min      # 心跳间隔
+  max_workers: 10               # 最大 Worker 数
+  timeout: 1h                   # Manager 超时
+  
+heartbeat:
+  enabled: true
+  interval: 5min
+  timeout: 30min
+  report_format: markdown
+```
+
+### 消息类型
+
+**1. 首次汇报**（启动后 1-2 分钟）
+```
+[Manager Started] blog-dev-2026-04-05-1430
+
+已拆解 4 个 Workers:
+├─ Worker-1: 用户系统 (认证/注册)
+├─ Worker-2: 文章系统 (发布/编辑)
+├─ Worker-3: 评论系统 (发布/审核)
+└─ Worker-4: 标签系统 (创建/关联)
+
+执行策略: Phase 1 并行，Phase 2/3 顺序
+开始执行...
+```
+
+**2. 常规心跳**（每 5 分钟）
+```
+[Heartbeat - Manager: blog-dev-2026-04-05-1430]
+⏱️ 运行: 15 分钟
+📊 整体进度: 45% (2/5 Workers 完成)
+
+Workers:
+├─ Worker-1: ✅ 已完成 (用户系统)
+├─ Worker-2: 🟡 运行中 80% (文章系统)
+├─ Worker-3: 🟡 运行中 60% (评论系统)
+├─ Worker-4: ⏳ 等待依赖 (标签系统)
+└─ Worker-5: ⏳ 未启动 (搜索系统)
+
+⚠️  阻塞: Worker-4 等待 Worker-2 完成
+💡 建议: 预计 10 分钟后 Worker-2 完成
+```
+
+**3. 异常告警**
+```
+[Alert - Manager: blog-dev-2026-04-05-1430]
+Worker-3 遇到异常
+
+问题: 数据库连接超时
+尝试: 自动重试 2/3 次
+状态: 已暂停，等待干预
+
+建议: 检查数据库配置
+```
+
+**4. 完成报告**
+```
+[Complete] 🎉 任务完成！
+
+总耗时: 45 分钟
+Workers: 5 个全部完成
+交付物: 12 个文件
+
+📁 项目位置: projects/blog-dev-2026-04-05-1430/
+📊 详细报告: COMPLETION-REPORT.md
 ```
 
 ## Examples
 
-### Example 1: 软件开发
+### Example 1: 系统检查任务
 
 ```
-User: /mao 开发一个博客系统，包含文章管理、用户系统、评论系统、标签系统
+用户: /mao 全面检查 agent memory system 健康状态
 
-AI: 【分析结果】适合4模块并行开发
-    【建议分解】
-    ├─ Module 1: 用户系统 (认证/注册/个人中心)
-    ├─ Module 2: 文章系统 (发布/编辑/分类)
-    ├─ Module 3: 评论系统 (发布/审核/通知)
-    └─ Module 4: 标签系统 (创建/关联/搜索)
-    
-    【依赖关系】
-    用户 → 文章 → 评论
-    标签 → 文章
-    
-    【执行策略】
-    Phase 1: 用户系统 + 标签系统 (并行)
-    Phase 2: 文章系统 (等待用户)
-    Phase 3: 评论系统 (等待文章)
-    
-    确认启动？ [启动] [调整] [取消]
+AI: ✅ 已启动 Manager
+    📋 任务: 全面检查 agent memory system 健康状态
+    🆔 任务ID: health-check-2026-04-05-1430
+    ⏱️  首次汇报: 5分钟内
 
-User: 启动
+[5分钟后]
 
-AI: ✅ 已启动 4 个 Worker
+AI: [Manager Started] health-check-2026-04-05-1430
     
-    📁 项目目录: projects/blog-system-2026-04-03/
-    📊 状态看板: projects/blog-system-2026-04-03/status.md
+    已拆解 4 个 Workers:
+    ├─ Worker-1: 检查 Cron 任务配置
+    ├─ Worker-2: 检查 GitHub 同步状态
+    ├─ Worker-3: 检查前端项目运行状态
+    └─ Worker-4: 检查 Netlify 部署状态
     
-    【实时状态】
-    Module 1 (用户系统): 🟡 运行中 - 45%
-    Module 2 (文章系统): ⏳ 等待依赖
-    Module 3 (评论系统): ⏳ 等待依赖
-    Module 4 (标签系统): 🟡 运行中 - 60%
+    开始执行...
+
+[15分钟后]
+
+AI: [Complete] 🎉 任务完成！
+    
+    总耗时: 15 分钟
+    Workers: 4 个全部完成
+    
+    📋 检查结果:
+    ├─ Cron 任务: ❌ 未配置（需要立即修复）
+    ├─ GitHub: ⚠️ 有待提交更改（3个文件）
+    ├─ 前端项目: ✅ 运行正常（端口3000）
+    └─ Netlify: ✅ 部署正常
+    
+    💡 建议操作:
+    1. 运行 crontab -e 配置定时任务
+    2. 提交 GitHub 更改: git push origin main
 ```
 
-### Example 2: 文档编写
+### Example 2: 开发项目
 
 ```
-User: /mao 写一份年度报告，包含市场分析、产品回顾、财务总结、未来规划
+用户: /mao 开发一个 todo-list 应用，使用 React + TypeScript
 
-AI: 【分析结果】适合4章节并行编写
-    【建议分解】
-    ├─ Writer 1: 市场分析章节
-    ├─ Writer 2: 产品回顾章节
-    ├─ Writer 3: 财务总结章节
-    └─ Writer 4: 未来规划章节
+AI: ✅ 已启动 Manager
+    📋 任务: 开发 todo-list 应用（React + TypeScript）
+    🆔 任务ID: todo-app-2026-04-05-1430
+    ⏱️  首次汇报: 5分钟内
+
+[5分钟后]
+
+AI: [Manager Started] todo-app-2026-04-05-1430
     
-    【整合策略】统一文风后合并为完整报告
+    已拆解 5 个 Workers:
+    ├─ Worker-1: 项目初始化（Vite + React + TS）
+    ├─ Worker-2: 核心组件开发（TodoList/TodoItem）
+    ├─ Worker-3: 状态管理（useState/useContext）
+    ├─ Worker-4: 样式系统（Tailwind CSS）
+    └─ Worker-5: 本地存储（localStorage）
     
-    确认启动？ [启动]
+    执行策略: Worker-1 完成后并行启动其他 Workers
+    开始执行...
 
-User: 启动
+[10分钟后]
 
-AI: 🚀 4 Writers 已启动
-    📄 预计输出: projects/annual-report-2026/
-```
-
-### Example 3: 增量任务模式
-
-```
-User: 我们之前讨论过要优化数据库查询性能，现在我想继续那个工作
-
-AI: 检测到历史会话上下文，建议使用增量任务模式。
-
-User: /mao launch --incremental
-
-AI: 📝 增量任务模式已启动
+AI: [Heartbeat - Manager: todo-app-2026-04-05-1430]
+    ⏱️ 运行: 10 分钟
+    📊 进度: 20% (1/5 Workers 完成)
     
-    【上下文分析】
-    基于当前会话提取到以下关键决策点：
-    - 需要优化慢查询日志中的 TOP 10 查询
-    - 已确定使用索引优化为主，缓存策略为辅
-    - 目标是将平均查询时间降低 50%
+    Workers:
+    ├─ Worker-1: ✅ 已完成 - 项目初始化完成
+    ├─ Worker-2: 🟡 运行中 30% - 开发 TodoList 组件
+    ├─ Worker-3: 🟡 运行中 25% - 设置状态管理
+    ├─ Worker-4: 🟡 运行中 20% - 配置 Tailwind
+    └─ Worker-5: ⏳ 等待中 - 等待 Worker-3 完成
+
+[30分钟后]
+
+AI: [Complete] 🎉 任务完成！
     
-    【建议增量任务】
-    ├─ Incremental-1: 上下文整理 (分析讨论记录，提取行动项)
-    ├─ Incremental-2: 索引优化方案 (针对 TOP 10 查询设计索引)
-    ├─ Incremental-3: 缓存策略设计 (Redis 缓存层架构)
-    └─ Incremental-4: 实施计划制定 (分阶段实施路线图)
+    总耗时: 30 分钟
+    Workers: 5 个全部完成
     
-    确认启动增量 Workers？ [启动] [调整]
-
-User: 启动
-
-AI: ✅ 已启动 4 个增量 Workers
-    📁 项目目录: projects/db-optimization-inc-2026-04-03/
-    🧠 上下文来源: 当前会话分析
-```
-
-### Example 4: 恢复历史任务
-
-```
-User: 查看我之前暂停的博客系统开发任务
-
-AI: 发现历史项目：blog-system-2026-04-02
-    状态：2个 Worker 已完成，2个 Worker 暂停中
-
-User: /mao launch --resume blog-system-2026-04-02
-
-AI: 🔄 恢复任务模式已启动
+    📁 项目位置: projects/todo-app-2026-04-05-1430/
+    📋 交付物:
+    ├─ src/components/TodoList.tsx
+    ├─ src/components/TodoItem.tsx
+    ├─ src/hooks/useTodos.ts
+    ├─ src/context/TodoContext.tsx
+    ├─ src/App.tsx
+    └─ README.md
     
-    【历史状态恢复】
-    ├─ Worker-01 (用户系统): ✅ 已完成
-    ├─ Worker-02 (标签系统): ✅ 已完成
-    ├─ Worker-03 (文章系统): ⏸️ 已暂停 (75% 完成)
-    └─ Worker-04 (评论系统): ⏸️ 已暂停 (30% 完成)
-    
-    【恢复策略】
-    - Worker-03: 继续完成剩余 25% (文章草稿功能)
-    - Worker-04: 继续完成剩余 70% (评论通知功能)
-    
-    确认恢复执行？ [恢复]
-
-User: 恢复
-
-AI: ✅ 已恢复 2 个 Workers
-    📁 项目目录: projects/blog-system-2026-04-02/
-    🧠 记忆来源: ai-memory-system/L1-episodic/
-```
-
-## How It Works
-
-### 架构图
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Manager (Orchestrator)                  │
-├─────────────────────────────────────────────────────────────┤
-│  1. 任务分析 → 2. 分解设计 → 3. 启动Workers → 4. 监控整合   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│   Worker 1    │   │   Worker 2    │   │   Worker N    │
-│   (Module 1)  │   │   (Module 2)  │   │   (Module N)  │
-└───────────────┘   └───────────────┘   └───────────────┘
-        │                     │                     │
-        └─────────────────────┼─────────────────────┘
-                              ▼
-                    ┌─────────────────┐
-                    │   状态文件同步   │
-                    │   (JSON/Markdown)│
-                    └─────────────────┘
-```
-
-### 执行流程
-
-1. **Phase 1: 任务分析**
-   - 评估任务可分解性（1-10分）
-   - 识别核心模块和边界
-   - 分析模块间依赖关系
-
-2. **Phase 2: 分解设计**
-   - 确定 Worker 数量和职责
-   - 设计模块接口和交付物格式
-   - 制定执行策略（并行/串行/混合）
-
-3. **Phase 3: 启动执行**
-   - 创建项目目录结构
-   - 生成 Worker 提示词和状态文件模板
-   - 并行启动所有 Workers
-
-4. **Phase 4: 监控协调**
-   - 定期检查状态文件
-   - 识别进度偏差和阻塞
-   - 协调依赖关系
-
-5. **Phase 5: 整合交付**
-   - 验证各模块交付物完整性
-   - 按设计整合为最终成果
-   - 生成项目总结报告
-
-### 增量任务模式
-
-增量任务模式 (`--incremental`) 允许基于当前会话上下文创建 Workers：
-
-```
-当前会话上下文
-       │
-       ▼
-┌─────────────────┐
-│ 上下文分析器     │  ← 提取关键决策点、行动项、未完成工作
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ 增量任务生成器   │  ← 基于上下文生成针对性任务
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ 启动增量 Workers │  ← 每个 Worker 携带上下文信息
-└─────────────────┘
-```
-
-### 恢复任务模式
-
-恢复任务模式 (`--resume`) 允许从历史记忆或状态文件恢复未完成的任务：
-
-```
-历史状态文件 / ai-memory-system
-              │
-              ▼
-┌─────────────────┐
-│  任务状态扫描    │  ← 查找暂停/失败的任务
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  上下文恢复     │  ← 读取相关记忆和已完成工作
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  恢复 Workers   │  ← 继续执行未完成的任务
-└─────────────────┘
+    🚀 运行: npm run dev
 ```
 
 ## Configuration
 
-### 默认配置
-
-```yaml
-# config/default.yaml
-decomposition:
-  strategy: hybrid           # parallel | sequential | hybrid
-  max_workers: 10
-  min_module_size: 30min     # 每个模块最少30分钟工作量
-  
-dependency:
-  auto_detect: true
-  strict_mode: false         # false=允许弱依赖并行
-
-monitoring:
-  check_interval: 10min
-  alert_on_block: true
-  auto_escalate: 15min       # 阻塞15分钟后上报
-
-output:
-  format: markdown
-  consolidate: true          # 自动整合
-  preserve_individual: true  # 保留各Worker输出
-
-incremental:
-  context_depth: 3           # 分析最近3轮对话
-  memory_source:             # 记忆来源优先级
-    - session_context
-    - ai_memory_system/L1
-    - ai_memory_system/L2
-  
-resume:
-  max_age_days: 7            # 最多恢复7天内的任务
-  include_completed: false   # 不包含已完成的 Workers
-```
-
-### 自定义配置
+### 环境变量
 
 ```bash
-# 创建自定义配置
-cp config/default.yaml ~/.openclaw/skills/multi-agent-orchestrator/config/my-config.yaml
-
-# 编辑配置
-vim ~/.openclaw/skills/multi-agent-orchestrator/config/my-config.yaml
-
-# 使用自定义配置
-/mao config use my-config
+export MAO_HEARTBEAT_INTERVAL=5min
+export MAO_MAX_WORKERS=10
+export MAO_TIMEOUT=1h
 ```
 
-## Best Practices
-
-### 何时使用此模式
-
-| ✅ 适合场景 | ❌ 不适合场景 |
-|-----------|-------------|
-| 任务可分解为5-10个独立模块 | 强依赖顺序的串行任务 |
-| 各模块边界清晰、接口明确 | 需要频繁实时协作的任务 |
-| 需要并行加速开发 | 单一简单任务（直接执行即可） |
-| 团队成员需要独立工作空间 | 需要高频同步决策的任务 |
-| **增量模式**：有历史上下文需要继续 | 完全独立的全新任务 |
-| **恢复模式**：之前有未完成的任务 | 任务已明确结束 |
-
-### Worker 数量建议
-
-- **简单任务** (2-3 模块): 3-5 Workers
-- **中等任务** (4-7 模块): 5-8 Workers
-- **复杂任务** (8+ 模块): 8-12 Workers，分 Phase 执行
-- **增量任务**: 通常 2-4 Workers，专注于特定上下文
-- **恢复任务**: 只恢复未完成的 Workers
-
-### 模式选择指南
-
-| 场景 | 推荐模式 | 命令 |
-|------|----------|------|
-| 全新任务 | 标准模式 | `/mao 任务描述` |
-| 基于当前会话继续 | 增量模式 | `/mao launch --incremental` |
-| 恢复之前的项目 | 恢复模式 | `/mao launch --resume <project-id>` |
-| 明确指定模块数 | 分解模式 | `/mao decompose --modules 4` |
-
-### 常见陷阱
-
-1. **❌ 任务分解过细**：将任务分解为 20+ 个微型任务
-   - ✅ **解决**：每个 Worker 应有 30 分钟-2 小时的工作量
-
-2. **❌ 忽视依赖分析**：并行启动有强依赖的任务
-   - ✅ **解决**：启动前绘制依赖图，强依赖任务串行
-
-3. **❌ 状态更新不及时**：Worker 执行 1 小时后才更新状态
-   - ✅ **解决**：设定更新频率（每 15 分钟或关键节点）
-
-4. **❌ 阻塞不报告**：Worker 遇到阻塞默默等待
-   - ✅ **解决**：明确约定：遇到阻塞立即标记
-
-5. **❌ 增量模式滥用**：每次都用增量模式，导致上下文混乱
-   - ✅ **解决**：全新任务用标准模式，真有上下文才用增量
-
-6. **❌ 恢复过时任务**：恢复一周前的任务，上下文已丢失
-   - ✅ **解决**：及时完成任务，恢复时检查记忆完整性
-
-## Directory Structure
+### 状态文件位置
 
 ```
-multi-agent-orchestrator/
-├── SKILL.md                    # 技能定义（本文件）
-├── README.md                   # 项目说明
-├── LICENSE                     # 许可证
-├── scripts/
-│   ├── analyze-task.sh         # 任务可分解性分析
-│   ├── decompose.sh            # 任务分解器
-│   ├── create-workers.sh       # 创建并启动 Workers
-│   ├── launch-workers.js       # Worker 启动器（支持增量/恢复模式）
-│   ├── monitor.sh              # 监控状态文件
-│   ├── resolve-dependencies.sh # 依赖解析器
-│   └── finalize.sh             # 整合交付物
-├── templates/
-│   ├── state-file.json         # 状态文件模板
-│   ├── worker-prompt.md        # Worker 提示词模板
-│   └── project-structure.md    # 项目结构模板
-├── config/
-│   └── default.yaml            # 默认规则配置
-└── examples/
-    ├── software-development.md # 软件开发示例
-    ├── document-writing.md     # 文档编写示例
-    ├── data-analysis.md        # 数据分析示例
-    └── incremental-task.md     # 增量任务示例
+~/.openclaw/workspace/.mao-status/
+├── {task-id-1}.json      # 运行中任务状态
+├── {task-id-2}.json
+└── archive/              # 已完成任务归档
+    └── {task-id}.json
 ```
 
-## API Reference
+## Why This Design?
 
-### Manager Commands
+### 1. 自然语言交互
+- 用户只需在对话中输入 `/mao <任务>`
+- 无需记住复杂的命令格式
+- 无需手动执行脚本
 
-| 命令 | 描述 | 示例 |
-|------|------|------|
-| `/mao` | 激活 Skill | `/mao` |
-| `/mao analyze` | 分析任务 | `/mao analyze "开发电商网站"` |
-| `/mao decompose` | 分解任务 | `/mao decompose --modules 4` |
-| `/mao launch` | 启动 Workers | `/mao launch` |
-| `/mao launch --incremental` | 增量任务模式 | `/mao launch --incremental` |
-| `/mao launch --resume` | 恢复历史任务 | `/mao launch --resume project-id` |
-| `/mao status` | 查看状态 | `/mao status` |
-| `/mao pause` | 暂停 Worker | `/mao pause worker-1` |
-| `/mao resume` | 恢复 Worker | `/mao resume worker-1` |
-| `/mao finalize` | 整合交付物 | `/mao finalize` |
-| `/mao config` | 配置选项 | `/mao config max-workers 10` |
+### 2. 非阻塞执行
+- 主代理立即返回，用户可继续对话
+- Manager 在后台独立运行
+- 进度通过消息异步汇报
 
-### State File Format
+### 3. 可靠性
+- Manager 定期持久化状态
+- Worker 失败可自动重试
+- 超时检测和自动恢复
 
-```json
-{
-  "phase": 1,
-  "name": "模块名称",
-  "status": "pending|running|waiting|completed|failed|paused",
-  "mode": "new|incremental|resume",
-  "subagent_id": "uuid",
-  "start_time": "2026-04-03T09:00:00+08:00",
-  "last_update": "2026-04-03T09:30:00+08:00",
-  "elapsed_minutes": 30,
-  "progress_percent": 60,
-  "blockers": [
-    {
-      "type": "dependency|resource|technical",
-      "description": "阻塞描述",
-      "blocking_on": "worker-name"
-    }
-  ],
-  "deliverables": ["交付物1", "交付物2"],
-  "completed_deliverables": ["已完成1"],
-  "estimated_completion": "2026-04-03T10:00:00+08:00",
-  "context_source": "session|memory|manual",
-  "notes": "其他备注"
-}
-```
-
-## Troubleshooting
-
-### Worker 长时间无响应
-
-```
-/mao status
-# 查看是否有 worker 标记为 blocked
-
-/mao check worker-1
-# 强制检查特定 worker 状态
-```
-
-### 依赖死锁
-
-```
-/mao analyze-dependencies
-# 重新分析依赖关系
-
-/mao resolve
-# 尝试自动解决冲突
-```
-
-### 交付物格式不一致
-
-```
-/mao validate
-# 验证各模块交付物格式
-
-/mao normalize
-# 标准化格式后整合
-```
-
-### 增量模式上下文不足
-
-```
-/mao launch --incremental --context-depth 5
-# 增加上下文分析深度
-
-/mao analyze-context
-# 手动分析当前上下文
-```
-
-### 恢复任务找不到历史记录
-
-```
-/mao list-projects
-# 列出可恢复的项目
-
-/mao launch --resume --max-age 14
-# 扩大搜索时间范围
-```
-
-## Contributing
-
-欢迎提交 Issue 和 PR！
-
-### 贡献指南
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
+### 4. 可观测性
+- 每 5 分钟心跳汇报
+- 关键节点即时通知
+- 状态文件可追溯
 
 ## License
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
-
-## Acknowledgments
-
-- 灵感来源于 AutoGen 的多代理模式和 MetaGPT 的 SOP 思想
-- 从 Memory System 2.0 项目实践中提炼优化
+MIT License
 
 ---
-
 **Made with ❤️ by [AnanasYang](https://github.com/AnanasYang)**
